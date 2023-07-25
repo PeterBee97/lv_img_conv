@@ -75,7 +75,7 @@ class Converter {
      * Get the number of passes being made over an image to output it.
      */
     getNumPasses() {
-        if(this.cf == ImageMode.CF_RGB565A8)
+        if(this.cf == ImageMode.CF_RGB565A8 || this.cf == ImageMode.CF_RGB565A8_PREMULTIPLIED)
             return 2;
         else
             return 1;
@@ -262,6 +262,10 @@ const LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST ${$attr_name} uint8_t ` + 
                 return "LV_COLOR_FORMAT_I4";
             case ImageMode.CF_INDEXED_8_BIT:
                 return "LV_COLOR_FORMAT_I8";
+            case ImageMode.CF_RGB565A8_PREMULTIPLIED:
+                return "LV_COLOR_FORMAT_RGB565A8_PREMULTIPLIED";
+            case ImageMode.CF_ARGB8888_PREMULTIPLIED:
+                return "LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED";
             default:
                 throw new Error("unexpected color format " + $cf);
         }
@@ -284,6 +288,8 @@ const LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST ${$attr_name} uint8_t ` + 
             case ImageMode.CF_INDEXED_4_BIT:
             case ImageMode.CF_INDEXED_8_BIT:
             case ImageMode.CF_RGB565A8:
+            case ImageMode.CF_RGB565A8_PREMULTIPLIED:
+            case ImageMode.CF_ARGB8888_PREMULTIPLIED:
                 data_size = this.d_out.length;
                 break;
             case ImageMode.CF_RAW:
@@ -347,9 +353,11 @@ const lv_img_dsc_t ${out_name} = {
         if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8565
             || this.cf == ImageMode.ICF_AL88
             || this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8888
-            || this.cf == ImageMode.CF_RGB565A8) {
+            || this.cf == ImageMode.CF_RGB565A8
+            || this.cf == ImageMode.CF_RGB565A8_PREMULTIPLIED
+            || this.cf == ImageMode.CF_ARGB8888_PREMULTIPLIED) {
             /* Populate r_act, g_act, b_act */
-            this.dith_next(r, g, b, x);
+            this.dith_next(r, g, b, x, a);
         }
 
         if(this.cf == ImageMode.ICF_AL88) {
@@ -363,12 +371,12 @@ const lv_img_dsc_t ${out_name} = {
             array_push(this.d_out, c16 & 0xFF);
             array_push(this.d_out, (c16 >> 8) & 0xFF);
             if(this.alpha) array_push(this.d_out, a);
-        } else if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8888) {
+        } else if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8888 || this.cf == ImageMode.CF_ARGB8888_PREMULTIPLIED) {
             array_push(this.d_out, this.b_act);
             array_push(this.d_out, this.g_act);
             array_push(this.d_out, this.r_act);
             array_push(this.d_out, a);
-        } else if(this.cf == ImageMode.CF_RGB565A8) {
+        } else if(this.cf == ImageMode.CF_RGB565A8 || this.cf == ImageMode.CF_RGB565A8_PREMULTIPLIED) {
             if(this.pass == 0) {
                 const c16 = ((this.r_act) << 8) | ((this.g_act) << 3) | ((this.b_act) >> 3);	//RGR565
                 array_push(this.d_out, c16 & 0xFF);
@@ -418,7 +426,7 @@ const lv_img_dsc_t ${out_name} = {
         }
     }
 
-    dith_next(r, g, b, x) {
+    dith_next(r, g, b, x, a) {
 
      if(this.options.dith){
         this.r_act = r + this.r_nerr + this.r_earr[x+1];
@@ -470,19 +478,31 @@ const lv_img_dsc_t ${out_name} = {
         this.b_earr[x+2] += round_half_up(this.b_nerr / 16);
       }
       else{
-        if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8565 || this.cf == ImageMode.CF_RGB565A8) {
+        if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8565 || this.cf == ImageMode.CF_RGB565A8 || this.cf == ImageMode.CF_RGB565A8_PREMULTIPLIED) {
             this.r_act = this.classify_pixel(r, 5);
             this.g_act = this.classify_pixel(g, 6);
             this.b_act = this.classify_pixel(b, 5);
+
+            if (this.cf == ImageMode.CF_RGB565A8_PREMULTIPLIED) {
+                this.r_act = Math.round(this.r_act * a / 0xFF);
+                this.g_act = Math.round(this.g_act * a / 0xFF);
+                this.b_act = Math.round(this.b_act * a / 0xFF);
+            }
 
             if(this.r_act > 0xF8) this.r_act = 0xF8;
             if(this.g_act > 0xFC) this.g_act = 0xFC;
             if(this.b_act > 0xF8) this.b_act = 0xF8;
 
-        } else if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8888 || this.cf == ImageMode.ICF_AL88) {
+        } else if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8888 || this.cf == ImageMode.ICF_AL88 || this.cf == ImageMode.CF_ARGB8888_PREMULTIPLIED) {
             this.r_act = this.classify_pixel(r, 8);
             this.g_act = this.classify_pixel(g, 8);
             this.b_act = this.classify_pixel(b, 8);
+
+            if (this.cf == ImageMode.CF_ARGB8888_PREMULTIPLIED) {
+                this.r_act = Math.round(this.r_act * a / 0xFF);
+                this.g_act = Math.round(this.g_act * a / 0xFF);
+                this.b_act = Math.round(this.b_act * a / 0xFF);
+            }
 
             if(this.r_act > 0xFF) this.r_act = 0xFF;
             if(this.g_act > 0xFF) this.g_act = 0xFF;
@@ -569,7 +589,7 @@ const lv_img_dsc_t ${out_name} = {
             x_end = this.d_out.length;
             i = 1;
         } else if(this.cf == ImageMode.CF_ALPHA_8_BIT
-            || this.cf == ImageMode.CF_RGB565A8) {
+            || this.cf == ImageMode.CF_RGB565A8 || this.cf == ImageMode.CF_RGB565A8_PREMULTIPLIED || this.cf == ImageMode.CF_ARGB8888_PREMULTIPLIED) {
             /* No special handling required */
         } else
             throw new Error("Unhandled color format: " + ImageMode[this.cf]);
@@ -586,7 +606,7 @@ const lv_img_dsc_t ${out_name} = {
                         i++;
                     }
                 }
-                else if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8565 || this.cf == ImageMode.CF_RGB565A8) {
+                else if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8565 || this.cf == ImageMode.CF_RGB565A8 || this.cf == ImageMode.CF_RGB565A8_PREMULTIPLIED) {
                     if(this.options.swapEndian) {
                         c_array += "0x" + str_pad(dechex(this.d_out[i+1]), 2, '0', true) + ", ";
                         c_array += "0x" + str_pad(dechex(this.d_out[i]), 2, '0', true) + ", ";
@@ -595,12 +615,12 @@ const lv_img_dsc_t ${out_name} = {
                         c_array += "0x" + str_pad(dechex(this.d_out[i+1]), 2, '0', true) + ", ";
                     }
                     i += 2;
-                    if(this.cf != ImageMode.CF_RGB565A8 && this.alpha) {
+                    if(this.cf != ImageMode.CF_RGB565A8 && this.cf != ImageMode.CF_RGB565A8_PREMULTIPLIED && this.alpha) {
                         c_array += "0x" + str_pad(dechex(this.d_out[i]), 2, '0', true) + ", ";
                         i++;
                     }
                 }
-                else if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8888) {
+                else if(this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8888 || this.cf == ImageMode.CF_ARGB8888_PREMULTIPLIED) {
                     if(this.options.swapEndian) {
                         c_array += "0x" + str_pad(dechex(this.d_out[i+2]), 2, '0', true) + ", ";
                         c_array += "0x" + str_pad(dechex(this.d_out[i+1]), 2, '0', true) + ", ";
@@ -645,7 +665,7 @@ const lv_img_dsc_t ${out_name} = {
             }
         }
 
-        if(this.cf == ImageMode.CF_RGB565A8) {
+        if(this.cf == ImageMode.CF_RGB565A8 || this.cf == ImageMode.CF_RGB565A8_PREMULTIPLIED) {
             c_array += "\n  /*alpha channel*/\n  ";
             for(var y = 0; y < y_end; y++) {
                 for(var x = 0; x < x_end; x++) {
@@ -656,7 +676,7 @@ const lv_img_dsc_t ${out_name} = {
             }
         }
 
-        if(this.cf == ImageMode.ICF_AL88 || this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8565 || this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8888) {
+        if(this.cf == ImageMode.ICF_AL88 || this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8565 || this.cf == ImageMode.ICF_TRUE_COLOR_ARGB8888 || this.cf == ImageMode.CF_ARGB8888_PREMULTIPLIED) {
             c_array += "\n#endif";
         }
         return c_array;
@@ -686,7 +706,9 @@ async function convertImageBlob(img: Image|Uint8Array, options: Partial<Converte
 
         const alpha = (options.cf == ImageMode.CF_TRUE_COLOR_ALPHA
             || options.cf == ImageMode.CF_ALPHA_8_BIT
-            || options.cf == ImageMode.CF_RGB565A8);
+            || options.cf == ImageMode.CF_RGB565A8
+            || options.cf == ImageMode.CF_RGB565A8_PREMULTIPLIED
+            || options.cf == ImageMode.CF_ARGB8888_PREMULTIPLIED);
         c_creator = new Converter(img.width, img.height, imageData, alpha, options);
 
         if(options.outputFormat == OutputMode.C) {
